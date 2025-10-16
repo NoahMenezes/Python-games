@@ -1,6 +1,8 @@
 import pygame
 import random
 import math
+import mediapipe
+import numpy
 
 pygame.init()
 
