@@ -5,9 +5,10 @@ import pygame
 
 # Initialize Pygame
 pygame.init()
+pygame.mixer.init()
 
 # Constants
-SCREEN_WIDTH = 400
+SCREEN_WIDTH = 600
 SCREEN_HEIGHT = 600
 FPS = 60
 
@@ -20,6 +21,7 @@ PIPE_GREEN = (34, 139, 34)
 BUTTON_COLOR = (255, 215, 0)
 BUTTON_HOVER = (255, 235, 50)
 TEXT_SHADOW = (50, 50, 50)
+SETTINGS_BG = (70, 130, 180)
 
 # Game variables
 gravity = 0.5
@@ -28,6 +30,21 @@ game_active = False
 score = 0
 high_score = 0
 can_score = True
+game_speed = 3.0
+base_speed = 3.0
+speed_increase_rate = 3
+game_state = "menu"  # menu, playing, game_over, settings
+
+# Settings variables
+difficulty = "medium"  # easy, medium, hard
+sound_enabled = True
+
+# Difficulty settings
+DIFFICULTY_SETTINGS = {
+    "easy": {"gravity": 0.4, "gap": 200, "speed_increase": 0.015, "base_speed": 2.5},
+    "medium": {"gravity": 0.5, "gap": 180, "speed_increase": 0.02, "base_speed": 3.0},
+    "hard": {"gravity": 0.6, "gap": 160, "speed_increase": 0.03, "base_speed": 3.5},
+}
 
 # Setup display
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -38,6 +55,22 @@ clock = pygame.time.Clock()
 title_font = pygame.font.Font(None, 60)
 score_font = pygame.font.Font(None, 40)
 menu_font = pygame.font.Font(None, 35)
+small_font = pygame.font.Font(None, 25)
+
+# Load sounds
+try:
+    crash_sound = pygame.mixer.Sound("sounds/crash.wav")
+    jump_sound = pygame.mixer.Sound("sounds/jump.wav")
+    score_sound = pygame.mixer.Sound("sounds/score.wav")
+    sounds_loaded = True
+except (pygame.error, FileNotFoundError) as e:
+    print(
+        f"Warning: Could not load sound files. Game will run without sound. Error: {e}"
+    )
+    sounds_loaded = False
+    crash_sound = None
+    jump_sound = None
+    score_sound = None
 
 
 # Bird class
@@ -52,7 +85,10 @@ class Bird:
         self.rotation = 0
 
     def jump(self):
-        self.velocity = -10
+        self.velocity = -8
+        # Play jump sound
+        if sound_enabled and sounds_loaded and jump_sound:
+            jump_sound.play()
 
     def update(self):
         self.velocity += gravity
@@ -106,12 +142,13 @@ class Pipe:
     def __init__(self):
         self.x = SCREEN_WIDTH
         self.width = 70
-        self.gap = 180
+        self.gap = DIFFICULTY_SETTINGS[difficulty]["gap"]
         self.top_height = random.randint(100, SCREEN_HEIGHT - 250)
-        self.speed = 3
+        self.speed = game_speed
         self.scored = False
 
     def update(self):
+        self.speed = game_speed  # Update speed dynamically
         self.x -= self.speed
 
     def draw(self, surface):
@@ -184,6 +221,40 @@ class Button:
         return self.rect.collidepoint(pos)
 
 
+# Toggle Button class for settings
+class ToggleButton:
+    def __init__(self, x, y, width, height, options, default_index=0):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.options = options
+        self.current_index = default_index
+        self.hover = False
+
+    def draw(self, surface):
+        color = BUTTON_HOVER if self.hover else BUTTON_COLOR
+
+        # Draw button
+        pygame.draw.rect(surface, color, self.rect, border_radius=8)
+        pygame.draw.rect(surface, WHITE, self.rect, 2, border_radius=8)
+
+        # Draw current option text
+        text_surf = small_font.render(self.options[self.current_index], True, BLACK)
+        text_rect = text_surf.get_rect(center=self.rect.center)
+        surface.blit(text_surf, text_rect)
+
+    def check_hover(self, pos):
+        self.hover = self.rect.collidepoint(pos)
+
+    def is_clicked(self, pos):
+        return self.rect.collidepoint(pos)
+
+    def toggle(self):
+        self.current_index = (self.current_index + 1) % len(self.options)
+        return self.options[self.current_index]
+
+    def get_value(self):
+        return self.options[self.current_index]
+
+
 # Draw functions
 def draw_background():
     # Sky gradient
@@ -227,6 +298,17 @@ def draw_score():
     screen.blit(score_shadow, shadow_rect)
     screen.blit(score_text, score_rect)
 
+    # Draw speed indicator
+    speed_text = small_font.render(f"Speed: {game_speed:.1f}x", True, WHITE)
+    speed_shadow = small_font.render(f"Speed: {game_speed:.1f}x", True, TEXT_SHADOW)
+    speed_rect = speed_text.get_rect(topright=(SCREEN_WIDTH - 20, 65))
+    shadow_rect = speed_rect.copy()
+    shadow_rect.x += 2
+    shadow_rect.y += 2
+
+    screen.blit(speed_shadow, shadow_rect)
+    screen.blit(speed_text, speed_rect)
+
 
 def draw_menu():
     # Semi-transparent overlay
@@ -238,7 +320,7 @@ def draw_menu():
     # Title
     title_text = title_font.render("FLAPPY BIRD", True, (255, 215, 0))
     title_shadow = title_font.render("FLAPPY BIRD", True, TEXT_SHADOW)
-    title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, 150))
+    title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, 120))
     shadow_rect = title_rect.copy()
     shadow_rect.x += 3
     shadow_rect.y += 3
@@ -249,8 +331,9 @@ def draw_menu():
     # High score
     high_score_text = menu_font.render(f"High Score: {high_score}", True, WHITE)
     high_score_shadow = menu_font.render(f"High Score: {high_score}", True, TEXT_SHADOW)
-    high_score_rect = high_score_text.get_rect(center=(SCREEN_WIDTH // 2, 220))
+    high_score_rect = high_score_text.get_rect(center=(SCREEN_WIDTH // 2, 200))
     shadow_rect = high_score_rect.copy()
+
     shadow_rect.x += 2
     shadow_rect.y += 2
 
@@ -258,26 +341,65 @@ def draw_menu():
     screen.blit(high_score_text, high_score_rect)
 
     # Instructions
-    if not game_active and score == 0:
-        inst_text = menu_font.render("Click to Start!", True, WHITE)
-        inst_shadow = menu_font.render("Click to Start!", True, TEXT_SHADOW)
-        inst_rect = inst_text.get_rect(center=(SCREEN_WIDTH // 2, 350))
-        shadow_rect = inst_rect.copy()
-        shadow_rect.x += 2
-        shadow_rect.y += 2
+    inst_text = small_font.render("SPACE or CLICK to Flap", True, WHITE)
+    inst_shadow = small_font.render("SPACE or CLICK to Flap", True, TEXT_SHADOW)
+    inst_rect = inst_text.get_rect(center=(SCREEN_WIDTH // 2, 270))
+    shadow_rect = inst_rect.copy()
+    shadow_rect.x += 2
+    shadow_rect.y += 2
 
-        screen.blit(inst_shadow, shadow_rect)
-        screen.blit(inst_text, inst_rect)
+    screen.blit(inst_shadow, shadow_rect)
+    screen.blit(inst_text, inst_rect)
 
-        control_text = menu_font.render("SPACE or CLICK to Flap", True, WHITE)
-        control_shadow = menu_font.render("SPACE or CLICK to Flap", True, TEXT_SHADOW)
-        control_rect = control_text.get_rect(center=(SCREEN_WIDTH // 2, 400))
-        shadow_rect = control_rect.copy()
-        shadow_rect.x += 2
-        shadow_rect.y += 2
+    # Draw buttons
+    play_button.draw(screen)
+    settings_button.draw(screen)
 
-        screen.blit(control_shadow, shadow_rect)
-        screen.blit(control_text, control_rect)
+
+def draw_settings():
+    # Background
+    screen.fill(SETTINGS_BG)
+
+    # Title
+    title_text = title_font.render("SETTINGS", True, WHITE)
+    title_shadow = title_font.render("SETTINGS", True, TEXT_SHADOW)
+    title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, 80))
+    shadow_rect = title_rect.copy()
+    shadow_rect.x += 3
+    shadow_rect.y += 3
+
+    screen.blit(title_shadow, shadow_rect)
+    screen.blit(title_text, title_rect)
+
+    # Difficulty label
+    diff_label = menu_font.render("Difficulty:", True, WHITE)
+    screen.blit(diff_label, (50, 170))
+
+    # Sound label
+    sound_label = menu_font.render("Sound:", True, WHITE)
+    screen.blit(sound_label, (50, 250))
+
+    # Info text
+    info_lines = [
+        "Easy: Slower speed, bigger gaps",
+        "Medium: Balanced gameplay",
+        "Hard: Faster speed, smaller gaps",
+        "",
+        "Speed increases as you play!",
+    ]
+    y_offset = 350
+    for line in info_lines:
+        info_text = small_font.render(line, True, WHITE)
+        info_rect = info_text.get_rect(center=(SCREEN_WIDTH // 2, y_offset))
+        screen.blit(info_text, info_rect)
+        y_offset += 25
+
+    # Draw toggle buttons
+    difficulty_toggle.draw(screen)
+    sound_toggle.draw(screen)
+
+    # Draw back button
+    back_button.draw(screen)
 
 
 def draw_game_over():
@@ -301,7 +423,7 @@ def draw_game_over():
     # Final score
     final_score_text = score_font.render(f"Score: {score}", True, WHITE)
     final_score_shadow = score_font.render(f"Score: {score}", True, TEXT_SHADOW)
-    final_score_rect = final_score_text.get_rect(center=(SCREEN_WIDTH // 2, 250))
+    final_score_rect = final_score_text.get_rect(center=(SCREEN_WIDTH // 2, 230))
     shadow_rect = final_score_rect.copy()
     shadow_rect.x += 2
     shadow_rect.y += 2
@@ -312,7 +434,7 @@ def draw_game_over():
     # High score
     high_score_text = score_font.render(f"Best: {high_score}", True, (255, 215, 0))
     high_score_shadow = score_font.render(f"Best: {high_score}", True, TEXT_SHADOW)
-    high_score_rect = high_score_text.get_rect(center=(SCREEN_WIDTH // 2, 300))
+    high_score_rect = high_score_text.get_rect(center=(SCREEN_WIDTH // 2, 280))
     shadow_rect = high_score_rect.copy()
     shadow_rect.x += 2
     shadow_rect.y += 2
@@ -320,15 +442,56 @@ def draw_game_over():
     screen.blit(high_score_shadow, shadow_rect)
     screen.blit(high_score_text, high_score_rect)
 
+    # Max speed reached
+    max_speed_text = small_font.render(f"Max Speed: {game_speed:.1f}x", True, WHITE)
+    max_speed_rect = max_speed_text.get_rect(center=(SCREEN_WIDTH // 2, 330))
+    screen.blit(max_speed_text, max_speed_rect)
+
     # Restart button
     restart_button.draw(screen)
+    menu_button.draw(screen)
+
+
+def reset_game():
+    global \
+        bird, \
+        pipes, \
+        score, \
+        game_speed, \
+        game_active, \
+        pipe_spawn_timer, \
+        gravity, \
+        base_speed, \
+        speed_increase_rate
+    game_active = True
+    bird = Bird()
+    pipes = []
+    score = 0
+    pipe_spawn_timer = 0
+
+    # Apply difficulty settings
+    settings = DIFFICULTY_SETTINGS[difficulty]
+    gravity = settings["gravity"]
+    base_speed = settings["base_speed"]
+    speed_increase_rate = settings["speed_increase"]
+    game_speed = base_speed
 
 
 # Initialize game objects
 bird = Bird()
 pipes = []
 pipe_spawn_timer = 0
-restart_button = Button(SCREEN_WIDTH // 2 - 100, 400, 200, 60, "RESTART")
+
+# Initialize buttons
+play_button = Button(SCREEN_WIDTH // 2 - 100, 330, 200, 60, "PLAY")
+settings_button = Button(SCREEN_WIDTH // 2 - 100, 410, 200, 60, "SETTINGS")
+restart_button = Button(SCREEN_WIDTH // 2 - 100, 390, 200, 50, "RESTART")
+menu_button = Button(SCREEN_WIDTH // 2 - 100, 460, 200, 50, "MENU")
+back_button = Button(SCREEN_WIDTH // 2 - 100, 500, 200, 50, "BACK")
+
+# Initialize toggle buttons
+difficulty_toggle = ToggleButton(220, 165, 130, 40, ["Easy", "Medium", "Hard"], 1)
+sound_toggle = ToggleButton(220, 245, 130, 40, ["ON", "OFF"], 0)
 
 # Main game loop
 running = True
@@ -341,37 +504,46 @@ while running:
 
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_SPACE:
-                if game_active:
+                if game_state == "playing":
                     bird.jump()
-                else:
-                    # Start/restart game
-                    game_active = True
-                    bird = Bird()
-                    pipes = []
-                    score = 0
-                    can_score = True
+                elif game_state == "menu":
+                    game_state = "playing"
+                    reset_game()
 
         if event.type == pygame.MOUSEBUTTONDOWN:
-            if game_active:
+            if game_state == "menu":
+                if play_button.is_clicked(mouse_pos):
+                    game_state = "playing"
+                    reset_game()
+                elif settings_button.is_clicked(mouse_pos):
+                    game_state = "settings"
+
+            elif game_state == "settings":
+                if back_button.is_clicked(mouse_pos):
+                    game_state = "menu"
+                elif difficulty_toggle.is_clicked(mouse_pos):
+                    difficulty = difficulty_toggle.toggle().lower()
+                elif sound_toggle.is_clicked(mouse_pos):
+                    sound_status = sound_toggle.toggle()
+                    sound_enabled = sound_status == "ON"
+
+            elif game_state == "playing":
                 bird.jump()
-            else:
-                if score > 0:  # Game over state
-                    if restart_button.is_clicked(mouse_pos):
-                        game_active = True
-                        bird = Bird()
-                        pipes = []
-                        score = 0
-                        can_score = True
-                else:  # Initial menu state
-                    game_active = True
-                    bird = Bird()
-                    pipes = []
-                    score = 0
-                    can_score = True
+
+            elif game_state == "game_over":
+                if restart_button.is_clicked(mouse_pos):
+                    game_state = "playing"
+                    reset_game()
+                elif menu_button.is_clicked(mouse_pos):
+                    game_state = "menu"
 
     # Update game state
-    if game_active:
+    if game_state == "playing":
         bird.update()
+
+        # Increase speed progressively
+        game_speed = base_speed + (score * speed_increase_rate)
+        game_speed = min(game_speed, base_speed * 2.5)  # Cap at 2.5x base speed
 
         # Spawn pipes
         pipe_spawn_timer += 1
@@ -389,12 +561,18 @@ while running:
             if not pipe.scored and pipe.x + pipe.width < bird.x:
                 pipe.scored = True
                 score += 1
+                # Play score sound
+                if sound_enabled and sounds_loaded and score_sound:
+                    score_sound.play()
                 if score > high_score:
                     high_score = score
 
         # Check collisions
         if bird.check_collision(pipes):
-            game_active = False
+            game_state = "game_over"
+            # Play crash sound
+            if sound_enabled and sounds_loaded and crash_sound:
+                crash_sound.play()
 
     # Drawing
     draw_background()
@@ -407,16 +585,26 @@ while running:
     # Draw bird
     bird.draw(screen)
 
-    # Draw UI
-    if game_active:
+    # Draw UI based on game state
+    if game_state == "menu":
+        play_button.check_hover(mouse_pos)
+        settings_button.check_hover(mouse_pos)
+        draw_menu()
+
+    elif game_state == "settings":
+        difficulty_toggle.check_hover(mouse_pos)
+        sound_toggle.check_hover(mouse_pos)
+        back_button.check_hover(mouse_pos)
+        draw_settings()
+
+    elif game_state == "playing":
         draw_score()
-    else:
-        if score == 0:
-            draw_menu()
-        else:
-            draw_score()
-            restart_button.check_hover(mouse_pos)
-            draw_game_over()
+
+    elif game_state == "game_over":
+        draw_score()
+        restart_button.check_hover(mouse_pos)
+        menu_button.check_hover(mouse_pos)
+        draw_game_over()
 
     pygame.display.flip()
     clock.tick(FPS)
